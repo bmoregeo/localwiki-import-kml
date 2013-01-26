@@ -8,16 +8,6 @@ from django.contrib.gis.geos import GeometryCollection
 
 import slumber
 
-SITE_URL = raw_input("Enter URL of LocalWiki instance: ").strip()
-API_KEY = raw_input("Enter API key: ").strip()
-USERNAME = raw_input("Enter API username: ").strip()
-KML_PATH = raw_input("Enter path to KML file: ").strip()
-
-api = slumber.API(urljoin(SITE_URL, '/api/'))
-
-ds = DataSource(KML_PATH)
-
-
 def clean_pagename(name):
     # Pagenames can't contain a slash with spaces surrounding it.
     name = '/'.join([part.strip() for part in name.split('/')])
@@ -25,39 +15,37 @@ def clean_pagename(name):
 
 
 def get_or_create_tag():
-    tag_name = raw_input(
-"""What tag name would you like to associate with this layer?
-(or just press Enter for no tag):\n""").strip()
+    tag_name = raw_input("""What tag name would you like to associate with this layer? (or just press Enter for no tag):\n""").strip()
     if tag_name:
         # Find or create the tag
-        if not api.tag.get(name__iexact=tag_name)['objects']:
+        get_tag = json.loads(api.tag.get(name__iexact=tag_name))
+        if not get_tag['objects']:
             api.tag.post({'name': tag_name},
                 api_key=API_KEY, username=USERNAME)
         # get tag uri
-        return api.tag.get(name__iexact=tag_name)['objects'][0]['resource_uri']
+        return json.loads(api.tag.get(name__iexact=tag_name))['objects'][0]['resource_uri']
     return None
 
 
 def get_or_create_page():
     # If the page doesn't exist, create it
-    if not api.page.get(name__iexact=pagename)['objects']:
-        try:
-            result = api.page.post({'name': pagename, 'content': content},
+    get_page = json.loads(api.page.get(name__iexact=pagename))
+    if not get_page['objects']:
+
+        r = api.page.post({'name': pagename, 'content': content},
                 api_key=API_KEY, username=USERNAME)
-        except:
-            pass
-        print ('..created page %s with description %s' %
-            (pagename, content))
-        return result['resource_uri']
+        print ('..created page %s with description %s' % (pagename, content))
+
+        return json.loads(api.page.get(name__iexact=pagename))['objects'][0]['resource_uri']
     else:
         # Get page URI
-        return api.page.get(
-            name__iexact=pagename)['objects'][0]['resource_uri']
+        return json.loads(api.page.get(name__iexact=pagename))['objects'][0]['resource_uri']
 
 
 def add_tag_to_page(tag, pagename):
     # Add page tag
-    page_tags = api.page_tags.get(page__name__iexact=pagename)['objects']
+    get_page_tags = api.page_tags.get(page__name__iexact=pagename)
+    page_tags = json.loads(get_page_tags)['objects']
     if page_tags:
         page_tags = page_tags[0]
         if tag not in page_tags['tags']:
@@ -78,7 +66,7 @@ def update_map(pagename):
     }
 
     # Does the page already have a map?
-    map_data = api.map.get(page__name__iexact=pagename)['objects']
+    map_data = json.loads(api.map.get(page__name__iexact=pagename))['objects']
     if map_data:
         map = map_data[0]
         map['geom'] = json.loads(
@@ -89,18 +77,40 @@ def update_map(pagename):
         # Create new map from the feature's geometry.
         api.map.post(map, api_key=API_KEY, username=USERNAME)
 
+if __name__ == '__main__':
+    testing = True
+    if testing:
+        KML_PATH = '/Users/christopher/Documents/Projects/DistrictCommons/localwiki-import-kml/tests/DCG9_RealProperty_AsNbhdPly.kmz'
+        API_KEY = 'dc-python-christopherfricke'
+        USERNAME = 'christopherfricke'
+        SITE_URL = 'http://districtcommons.org'
+    else:
+        SITE_URL = raw_input("Enter URL of LocalWiki instance: ").strip()
+        API_KEY = raw_input("Enter API key: ").strip()
+        USERNAME = raw_input("Enter API username: ").strip()
+        KML_PATH = raw_input("Enter path to KML file: ").strip()
 
-for layer in ds:
-    print 'Importing layer: %s' % layer.name
+    api = slumber.API(urljoin(SITE_URL, '/api/'))
 
-    tag = get_or_create_tag()
+    ds = DataSource(KML_PATH)
 
-    for feature in layer:
-        pagename = clean_pagename(feature.get('Name'))
-        content = feature.get('Description') or 'Describe %s here.' % pagename
 
-        page_uri = get_or_create_page()
-        add_tag_to_page(tag, pagename)
-        update_map(pagename)
+    for layer in ds:
+        print 'Importing layer: %s' % layer.name
 
-        print '..imported geometry for %s' % pagename
+        tag = get_or_create_tag()
+
+        field_names =layer.fields
+        print ','.join(field_names)
+
+        for feature in layer:
+            print ','.join([str(feature.get(field_name)) for field_name in field_names])
+            pagename = clean_pagename(feature.get('Name'))
+            content = feature.get('description') or 'Describe %s here.' % pagename
+
+            page_uri = get_or_create_page()
+            add_tag_to_page(tag, pagename)
+            update_map(pagename)
+
+            #print '..imported geometry for %s' % pagename
+
